@@ -25,7 +25,10 @@ private:
         int stop;
         int departureBus;
         int departureTime;
-        // Triple(int s, int dB, int dT):stop(s),departureBus(dB),departureTime(dT){};
+        bool operator==(const Triple &other)
+        {
+            return stop == other.stop && departureBus == other.departureBus && departureTime == other.departureTime;
+        }
     };
 
     std::vector<Triple> getMinTimeRoute(const int &startStop, const int &endStop, const int &startTime);
@@ -33,14 +36,26 @@ private:
     std::vector<Triple> getMinWaitRoute(const int &startStop, const int &endStop, const int &startTime);
 
 public:
-TransportNetwork(){}
-void displayStopsWithIds()
-{
-    for(const auto& [id,stop]:graph)
+    void displayStopsWithIds()
     {
-        std::cout<<"Id: "<<id<<", "<<"stop name: "<<stop.name<<std::endl;
+        for (const auto &[id, stop] : graph)
+        {
+            std::cout << "Id: " << id << ", " << "stop name: " << stop.name << std::endl;
+        }
     }
-}
+    void displayBusScheduleOfStop(const int &stopId)
+    {
+        for (const auto &[bus, aTimes] : graph[stopId].buses)
+        {
+            std::cout << "Bus " << bus << " : ";
+            for (int t : aTimes)
+            {
+                std::cout << t << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
     void uploadGraph(const std::string &fileName)
     {
         std::ofstream stream(fileName, std::ios::trunc);
@@ -88,10 +103,12 @@ void displayStopsWithIds()
 
     void addStop(const std::string &name)
     {
+
         Stop temp;
         temp.name = name;
         graph[temp.id++] = temp;
     }
+
     void addBus(int number, const std::vector<int> &route, const std::vector<std::vector<int>> &timetable)
     {
         if (busRoutes.find(number) != busRoutes.end())
@@ -113,7 +130,9 @@ void displayStopsWithIds()
                 std::cout << "Error: No such stop: " << route[i] << std::endl;
                 return;
             }
-            graph[route[i]].buses[number] = timetable[i];
+
+            graph[route[i]].buses[number].insert(graph[route[i]].buses[number].end(), timetable[i].begin(), timetable[i].end());
+            // in this way we manage loop bus routes;
         }
     }
 
@@ -177,20 +196,15 @@ std::vector<TransportNetwork::Triple> TransportNetwork::getMinTimeRoute(const in
         visited[minId] = true;
         for (auto [busNumber, arrivalTimes] : graph[minId].buses)
         {
-            int indexRoute = 0;
-            int indexTime = 0;
-            while (indexRoute < busRoutes[busNumber].size())
-            {
-                if (busRoutes[busNumber][indexRoute] == minId)
-                {
-                    break;
-                }
-                ++indexRoute;
-            }
+            int indexRoute = std::find(busRoutes[busNumber].begin(), busRoutes[busNumber].end(), minId) - busRoutes[busNumber].begin();
+            int indexTime;
 
-            while (indexTime < graph[minId].buses[busNumber].size())
+            int size = arrivalTimes.size();
+            if (indexRoute == 0 && busRoutes[busNumber][0] == *(busRoutes[busNumber].end() - 1))
+                size = size / 2;
+            while (indexTime < size)
             {
-                if (graph[minId].buses[busNumber][indexTime] >= minTime[minId])
+                if (arrivalTimes[indexTime] >= minTime[minId])
                 {
                     break;
                 }
@@ -222,6 +236,9 @@ std::vector<TransportNetwork::Triple> TransportNetwork::getMinTimeRoute(const in
         restoredPath.push_back(prev[curr]);
     }
     std::reverse(restoredPath.begin(), restoredPath.end());
+    minTime.clear();
+    prev.clear();
+    visited.clear();
     return restoredPath;
 }
 
@@ -358,10 +375,131 @@ std::vector<TransportNetwork::Triple> TransportNetwork::getMinChangesRoute(const
     return restoredPath;
 }
 
-std::vector<TransportNetwork::Triple> TransportNetwork::getMinWaitRoute(const int &startStop, const int &endStop, const int &startTime)
-{
+std::vector<TransportNetwork::Triple> TransportNetwork::getMinWaitRoute(const int &startStop, const int &endStop, const int &startTime) {
+    // Store the minimum wait time for each stop and time
+    std::unordered_map<int, std::unordered_map<int, int>> minWaitTime;
+    // Store the previous stop and bus for backtracking
+    std::unordered_map<int, std::unordered_map<int, Triple>> prev;
+   // Track visited nodes
+    std::unordered_map<int, std::unordered_map<int, bool>> visited;
+
+    int firstTime = 1440; // Max time (24 hours in minutes)
+    int numOfNodes = 0;
+
+    // Initialize all stops and times
+    for (const auto &[id, stop] : graph) {
+        for (const auto &[busNumber, arrivalTimes] : stop.buses) {
+            for (int time : arrivalTimes) {
+                minWaitTime[id][time] = INT_MAX / 2;
+                visited[id][time] = false;
+                numOfNodes++;
+                if (id == startStop && time < firstTime && time >= startTime) {
+                    firstTime = time;
+                }
+            }
+        }
+    }
+
+    // Initialize the starting stop
+    minWaitTime[startStop][firstTime] = firstTime - startTime;
+    prev[startStop][firstTime] = {startStop, -1, startTime};
+
+    // Dijkstra's algorithm
+    for (int i = 0; i < numOfNodes; ++i) {
+        int minEdgeId = -1;
+        int minEdgeTime = -1;
+
+        // Find the next unvisited node with the minimum wait time
+        for (const auto &[id, times] : minWaitTime) {
+            for (const auto &[time, wait] : times) {
+                if (!visited[id][time] && (minEdgeId == -1 || wait < minWaitTime[minEdgeId][minEdgeTime])) {
+                    minEdgeId = id;
+                    minEdgeTime = time;
+                }
+            }
+        }
+
+        if (minEdgeId == -1 || minEdgeTime == -1 || minWaitTime[minEdgeId][minEdgeTime] == INT_MAX / 2) {
+            break;
+        }
+
+        visited[minEdgeId][minEdgeTime] = true;
+
+        // Debugging: Log visited node
+        std::cout << "Visited (" << minEdgeId << ", " << minEdgeTime << ")" << std::endl;
+
+        // Process neighbors (waiting and traveling edges)
+        for (const auto &[busNumber, arrivalTimes] : graph[minEdgeId].buses) {
+            int indexRoute = std::find(busRoutes[busNumber].begin(), busRoutes[busNumber].end(), minEdgeId) - busRoutes[busNumber].begin();
+
+            // Handle waiting edges
+            for (int time : arrivalTimes) {
+                if (time > minEdgeTime) {
+                    int val = minWaitTime[minEdgeId][minEdgeTime] + (time - minEdgeTime);
+                    if (val < minWaitTime[minEdgeId][time]) {
+                        minWaitTime[minEdgeId][time] = val;
+                        prev[minEdgeId][time] = {minEdgeId, -1, minEdgeTime};
+                    }
+                }
+            }
+
+            // Skip invalid routes
+            if (indexRoute + 1 >= busRoutes[busNumber].size()) {
+                continue;
+            }
+
+            // Handle traveling edges
+            int indexTime = std::find(arrivalTimes.begin(), arrivalTimes.end(), minEdgeTime) - arrivalTimes.begin();
+            if (indexTime == arrivalTimes.size()) {
+                continue;
+            }
+
+            int toStop = busRoutes[busNumber][indexRoute + 1];
+            std::vector<int> arrivalT = graph[toStop].buses[busNumber];
+            int diff = graph[toStop].buses[busNumber].size() - graph[minEdgeId].buses[busNumber].size();
+            int toTime = (indexRoute + 2 == busRoutes[busNumber].size())
+                         ? arrivalT[indexTime + diff]
+                         : arrivalT[indexTime];
+
+            if (!visited[toStop][toTime]) {
+                int val = minWaitTime[minEdgeId][minEdgeTime];
+                if (val < minWaitTime[toStop][toTime]) {
+                    minWaitTime[toStop][toTime] = val;
+                    prev[toStop][toTime] = {minEdgeId, busNumber, minEdgeTime};
+                }
+            }
+        }
+    }
+
+    // Reconstruct the route
+    std::vector<Triple> route;
+    int currentStop = endStop;
+    int currentTime = -1;
+
+    // Find the earliest arrival time at the end stop
+    for (const auto &[time, _] : minWaitTime[endStop]) {
+        if (currentTime == -1 || minWaitTime[endStop][time] < minWaitTime[endStop][currentTime]) {
+            currentTime = time;
+        }
+    }
     
+    if (currentTime == -1) {
+        return {}; // No route found
+    }
+
+    // Backtrack using `prev`
+    while (currentStop != startStop || currentTime != startTime) {
+        const Triple &prevTriple = prev[currentStop][currentTime];
+        route.push_back({currentStop, prevTriple.departureBus, currentTime});
+        currentStop = prevTriple.stop;
+        currentTime = prevTriple.departureTime;
+    }
+
+    route.push_back({startStop, -1, startTime});
+    std::reverse(route.begin(), route.end());
+    return route;
 }
+
 
 std::vector<int> lineToVetcor(const std::string line)
 {
@@ -382,7 +520,7 @@ std::vector<int> lineToVetcor(const std::string line)
         }
         else if (currentNumber != -1)
         {
-            
+
             result.push_back(currentNumber);
             currentNumber = -1;
         }
@@ -464,20 +602,22 @@ int main()
     network.addStop("Sofia university");
     network.addStop("Airport");
     network.addStop("Krasno selo");
-    network.addBus(94, {0, 1}, {{300, 360}, {310, 370}});
-    network.addBus(210, {0, 2, 1, 3, 4, 5, 6, 7, 0}, {{361}, {365}, {369}, {376}, {384}, {400}, {410}, {414}, {430}});
-    network.addBus(88, {7, 5, 4}, {{350, 450}, {365, 460}, {380, 470}});
+    // network.addBus(94, {0, 1}, {{300, 360}, {310, 370}});
+    // network.addBus(210, {0, 2, 1, 3, 4, 5, 6, 7, 0}, {{361}, {365}, {369}, {376}, {384}, {400}, {410}, {414}, {430}});
+    // network.addBus(88, {7, 5, 4}, {{350, 450}, {365, 460}, {380, 470}});
 
-    //network.minWaitRoute(0, 1, 350);
+    // network.minWaitRoute(0, 1, 350);
 
     TransportNetwork network1;
     network1.addStop("Central station");
     network1.addStop("Serdika");
     network1.addStop("Vasil Levski");
     network1.addStop("Obelq");
-    network1.addBus(313, {8,11, 8}, {{0,8,16,24,32,40,48,56,64,72}, {4,12,20,28,36,44,52,60,68,76}, {0,8,16,24,32,40,48,56,64,72}});
-    network1.addBus(122, {8,9,10}, {{2,12,22,32,42,52}, {10,20,30,40,50,60}, {20,30,40,50,60,70}});
-    network1.minWaitRoute(8,10,0);
+    network1.addBus(313, {8, 11, 8}, {{0, 8, 16, 24, 32, 40, 48, 56, 64, 72}, {4, 12, 20, 28, 36, 44, 52, 60, 68, 76}, {8, 16, 24, 32, 40, 48, 56, 64, 72, 80}});
+    network1.addBus(122, {8, 9, 10}, {{2, 12, 22, 32, 42, 52}, {10, 20, 30, 40, 50, 60}, {20, 30, 40, 50, 60, 70}});
+    network1.minWaitRoute(8, 10, 1);
+    // network1.minTimeRoute(11,10,24);
+    // network1.displayBusScheduleOfStop(8);
 
     return 0;
 }
