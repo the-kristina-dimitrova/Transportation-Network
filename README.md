@@ -1,6 +1,6 @@
 # Transport Network
-### Used programming language : C++
-### Created by Kristina Dimitrova, 2group, 2 year, Computer Science
+*Used programming language : C++*
+*Created by Kristina Dimitrova, 2group, 2 year, Computer Science*
 
 ## BasicFunctions module
 В този модул са включени само общи функции, които не са свързани със самата функционалност на транспортната мрежа, а са повече за изграждане на самата транспортна мрежа и за удобство на потребителя.
